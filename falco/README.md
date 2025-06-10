@@ -575,11 +575,31 @@ Or instead of directly setting the files via `--set-file`, mounting an existing 
 
 ## Deploy Falcosidekick with Falco
 
-[`Falcosidekick`](https://github.com/falcosecurity/falcosidekick) can be installed with `Falco` by setting `--set falcosidekick.enabled=true`. This setting automatically configures all options of `Falco` for working with `Falcosidekick`.
-All values for the configuration of `Falcosidekick` are available by prefixing them with `falcosidekick.`. The full list of available values is [here](https://github.com/falcosecurity/charts/tree/master/charts/falcosidekick#configuration).
-For example, to enable the deployment of [`Falcosidekick-UI`](https://github.com/falcosecurity/falcosidekick-ui), add `--set falcosidekick.enabled=true --set falcosidekick.webui.enabled=true`.
+[`Falcosidekick`](https://github.com/falcosecurity/falcosidekick) is a companion tool for Falco, deployed as a sub-chart of this Falco Helm chart. It extends Falco's capabilities by forwarding alert events to a wide array of output channels. This allows for flexible integration into your existing security and operational workflows.
 
-If you use a Proxy in your cluster, the requests between `Falco` and `Falcosidekick` might be captured, use the full FQDN of `Falcosidekick` by using `--set falcosidekick.fullfqdn=true` to avoid that.
+Some categories of supported integrations include (not an exhaustive list):
+*   **Chat:** Slack, Microsoft Teams, Discord, Google Chat, Rocket.Chat, Mattermost, Telegram, Zoho Cliq, Webex.
+*   **Logging & SIEM:** Elasticsearch, Loki, Splunk, Grafana Loki, AWS Security Lake, OpenSearch, Sumo Logic, Quickwit, ZincSearch, OpenObserve.
+*   **Alerting & Incident Management:** PagerDuty, Opsgenie, Alertmanager, Grafana OnCall.
+*   **Metrics & Observability:** Datadog, Prometheus, InfluxDB, StatsD, DogStatsD, Wavefront, Dynatrace, TimescaleDB, OTLP (traces and metrics).
+*   **Generic Webhooks:** Send alerts to any compatible HTTP endpoint.
+*   **Cloud Storage & Messaging:** AWS S3, AWS SNS, AWS SQS, AWS Kinesis, Azure Event Hubs, Google Cloud Pub/Sub, Google Cloud Storage, RabbitMQ, NATS, STAN (NATS Streaming), Kafka, Redis.
+*   **Serverless Functions & Workflow Automation:** AWS Lambda, Google Cloud Functions, Google Cloud Run, Kubeless, OpenFaaS, Fission, Tekton, Node-RED, n8n.
+*   **Policy & Compliance:** PolicyReport (for Kubernetes).
+*   **Email:** SMTP.
+*   **Other:** Gotify, Spyderbat, MQTT.
+
+Falcosidekick can be installed and configured alongside `Falco` by setting `falcosidekick.enabled=true` in your `values.yaml` file or via Helm's `--set` flag. This main Falco chart automatically configures Falco to work with Falcosidekick when enabled.
+
+All specific configurations for Falcosidekick and its numerous outputs are managed by prefixing the keys with `falcosidekick.` within the Falco chart's `values.yaml` (e.g., `falcosidekick.slack.webhookurl="YOUR_SLACK_WEBHOOK_URL"`).
+
+For example, to enable the deployment of Falcosidekick and its optional UI, [`Falcosidekick-UI`](https://github.com/falcosecurity/falcosidekick-ui), you would add:
+`--set falcosidekick.enabled=true --set falcosidekick.webui.enabled=true`
+to your Helm install/upgrade command, or set these in your `values.yaml`.
+
+If you use a Proxy in your cluster, the requests between `Falco` and `Falcosidekick` might be captured. To avoid this, use the full FQDN of `Falcosidekick` by setting `--set falcosidekick.fullfqdn=true`.
+
+For a comprehensive list of all supported outputs and their detailed configuration parameters, please refer to the `values.yaml` file located within the Falcosidekick chart directory (`charts/falcosidekick/values.yaml`) and the official Falcosidekick documentation at its GitHub repository: [https://github.com/falcosecurity/falcosidekick](https://github.com/falcosecurity/falcosidekick).
 
 ## Configuration
 

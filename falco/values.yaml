@@ -546,7 +546,7 @@ customRules:
 # -- For configuration values, see https://github.com/falcosecurity/charts/blob/master/charts/falcosidekick/values.yaml
 falcosidekick:
   # -- Enable falcosidekick deployment.
-  enabled: true
+  enabled: false
   webui:
     enabled: true
   config: {}
@@ -921,7 +921,7 @@ falco:
   # certain priority or higher are active and evaluated by Falco. Supported
   # levels: "emergency", "alert", "critical", "error", "warning", "notice",
   # "info", "debug"
-  priority: debug
+  priority: "debug"
 
   # [Stable] `json_output`
   #
