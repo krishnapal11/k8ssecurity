@@ -1,0 +1,97 @@
+{{- $templateName := "k8srequireprobes" }}
+{{- $templateConfig := index .Values.constraintTemplates $templateName }}
+
+{{- if $templateConfig.enabled }}
+apiVersion: templates.gatekeeper.sh/v1
+kind: ConstraintTemplate
+metadata:
+  name: {{ $templateName }}
+  labels:
+    {{- include "gatekeeper.commonLabels" . | nindent 4 }}
+  annotations:
+    metadata.gatekeeper.sh/title: "Required Probes"
+    metadata.gatekeeper.sh/version: "1.0.1" # Version from your input
+    description: "Requires containers to have specified probes (e.g., livenessProbe, readinessProbe) defined, and ensures these probes have a valid action type (e.g., httpGet, exec, tcpSocket, grpc)."
+spec:
+  crd:
+    spec:
+      names:
+        kind: K8sRequireProbes # Static Kind
+      validation:
+        legacySchema: false
+        openAPIV3Schema:
+          type: object
+          properties:
+            probeTypes:
+              type: array
+              description: >-
+                A list of valid probe action fields (e.g., ["httpGet", "exec", "tcpSocket", "grpc"]). A required probe must define at least one of these action fields.
+              items:
+                type: string
+            probes:
+              type: array
+              description: "A list of probe names that are required for every non-exempt container (e.g., [\"livenessProbe\", \"readinessProbe\"])."
+              items:
+                type: string # e.g., "livenessProbe", "readinessProbe", "startupProbe"
+  targets:
+    - target: admission.k8s.gatekeeper.sh
+      rego: |
+        package k8srequireprobes
+
+        import data.lib.exclude_update.is_update
+
+        # Helper to get the set of required probe action types from parameters
+        get_required_probe_action_types_set = types {
+            types := {type | type := object.get(input.parameters, "probeTypes", [])[_]}
+        }
+
+        violation[{"msg": msg, "details": {"container_name": container.name, "problem_probe": required_probe_name}}] {
+            # This policy typically applies to new pods or significant updates, not minor metadata changes.
+            not is_update(input.review) 
+
+            container := all_input_containers[_]
+            # Iterate over each probe name required by parameters (e.g., "livenessProbe", "readinessProbe")
+            required_probe_name := object.get(input.parameters, "probes", [])[_]
+            
+            probe_is_missing_or_action_type_undefined(container, required_probe_name)
+            
+            required_action_types_for_msg := get_required_probe_action_types_set
+            msg := sprintf("Container <%v> in pod <%v> is missing required probe <%v>, or the probe lacks a defined action type (must be one of %v).",
+                           [container.name, input.review.object.metadata.name, required_probe_name, required_action_types_for_msg])
+        }
+
+        probe_is_missing_or_action_type_undefined(container, probe_name) {
+            # Case 1: The entire probe object (e.g., container.livenessProbe) is missing from the container spec
+            probe_spec := object.get(container, probe_name, null) # Get the specific probe like container.livenessProbe
+            probe_spec == null
+        } else {
+            # Case 2: The probe object exists (probe_spec is not null), 
+            # but none of its defined action fields match the required probeTypes.
+            # Get all keys from the probe_spec (e.g., {"httpGet", "initialDelaySeconds", "periodSeconds"})
+            defined_action_fields_in_probe := {action_field | probe_spec[action_field]}
+            
+            required_action_types := get_required_probe_action_types_set
+            
+            # Check if there's any intersection between actions defined in the probe and required action types
+            intersecting_actions := defined_action_fields_in_probe & required_action_types
+            count(intersecting_actions) == 0 # Violation if no overlap
+        }
+
+        # Gathers all container types (standard, init, ephemeral)
+        all_input_containers[c] {
+            c := object.get(input.review.object.spec, "containers", [])[_]
+        }
+        all_input_containers[c] {
+            c := object.get(input.review.object.spec, "initContainers", [])[_]
+        }
+        all_input_containers[c] {
+            c := object.get(input.review.object.spec, "ephemeralContainers", [])[_]
+        }
+      libs:
+        - |
+          package lib.exclude_update
+
+          is_update(review) {
+            review.operation == "UPDATE"
+          }
+{{- end }}

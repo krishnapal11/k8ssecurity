@@ -1,0 +1,86 @@
+{{- $templateName := "k8spspvolumetypes" }}
+{{- $templateConfig := index .Values.constraintTemplates $templateName }}
+
+{{- if $templateConfig.enabled }}
+apiVersion: templates.gatekeeper.sh/v1
+kind: ConstraintTemplate
+metadata:
+  name: {{ $templateName }}
+  labels:
+    {{- include "gatekeeper.commonLabels" . | nindent 4 }}
+  annotations:
+    metadata.gatekeeper.sh/title: "Volume Types"
+    metadata.gatekeeper.sh/version: "1.0.2" # Version from your input
+    description: >-
+      Restricts mountable volume types to those specified by the user.
+      Corresponds to the `volumes` field in a PodSecurityPolicy. For more information,
+      see https://kubernetes.io/docs/concepts/policy/pod-security-policy/#volumes-and-file-systems
+spec:
+  crd:
+    spec:
+      names:
+        kind: K8sPSPVolumeTypes # Static Kind
+      validation:
+        legacySchema: false
+        openAPIV3Schema:
+          type: object
+          description: >-
+            Restricts mountable volume types to those specified by the user.
+            Corresponds to the `volumes` field in a PodSecurityPolicy. For more information,
+            see https://kubernetes.io/docs/concepts/policy/pod-security-policy/#volumes-and-file-systems
+          properties:
+            volumes: # This is the key for the parameters
+              description: "An array of allowed volume types (e.g., [\"configMap\", \"secret\", \"emptyDir\"]). All volume types can be allowed by providing a single entry \"*\" in this list."
+              type: array
+              items:
+                type: string
+  targets:
+    - target: admission.k8s.gatekeeper.sh
+      rego: |
+        package k8spspvolumetypes
+
+        import data.lib.exclude_update.is_update
+
+        violation[{"msg": msg, "details": {"disallowed_volume_type": volume_type}}] {
+          not is_update(input.review) # Apply policy mainly on CREATE operations
+
+          pod_spec := object.get(input.review.object, "spec", {})
+          pod_volumes_list := object.get(pod_spec, "volumes", [])
+          
+          current_volume_definition := pod_volumes_list[_]
+          
+          # Extract the volume type field (e.g., "configMap", "hostPath")
+          # A volume definition is like {"name": "myvol", "configMap": {...}}
+          # The keys of this object, excluding "name", represent the type.
+          defined_fields_in_volume := {key | current_volume_definition[key]}
+          type_defining_fields := defined_fields_in_volume - {"name"}
+          
+          # Normally, a volume definition should have exactly one type-defining field.
+          count(type_defining_fields) == 1
+          volume_type := type_defining_fields[_] # Get the actual volume type string
+
+          not input_volume_type_allowed(volume_type)
+          
+          allowed_types_param := object.get(input.parameters, "volumes", [])
+          msg := sprintf("The volume type '%v' is not allowed for pod '%v'. Allowed volume types: %v", [volume_type, input.review.object.metadata.name, allowed_types_param])
+        }
+
+        # Allowed if "*" is in the list of allowed volume types in parameters
+        input_volume_type_allowed(_) {
+          allowed_list := object.get(input.parameters, "volumes", [])
+          allowed_list[_] == "*"
+        }
+
+        # Allowed if the specific volume_type is in the list of allowed volume types in parameters
+        input_volume_type_allowed(volume_type_to_check) {
+          allowed_list := object.get(input.parameters, "volumes", [])
+          volume_type_to_check == allowed_list[_]
+        }
+      libs:
+        - |
+          package lib.exclude_update
+
+          is_update(review) {
+            review.operation == "UPDATE"
+          }
+{{- end }}

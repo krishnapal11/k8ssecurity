@@ -1,0 +1,53 @@
+{{- $templateName := "k8spspallowedusers" }}
+{{- $templateConfig := index .Values.constraintTemplates $templateName }}
+ 
+{{- if $templateConfig.enabled }}
+apiVersion: templates.gatekeeper.sh/v1
+kind: ConstraintTemplate
+metadata:
+  name: {{ $templateName }}
+  labels:
+    {{- include "gatekeeper.commonLabels" . | nindent 4 }}
+  annotations:
+    metadata.gatekeeper.sh/title: "PSP Allowed Users"
+    metadata.gatekeeper.sh/version: "1.0.0"
+    description: "Ensures only specific users run privileged containers."
+spec:
+  crd:
+    spec:
+      names:
+        kind: K8sPSPAllowedUsers
+      validation:
+        openAPIV3Schema:
+          type: object
+          properties:
+            runAsUser:
+              type: object
+              properties:
+                rule:
+                  type: string
+                ranges:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      min:
+                        type: integer
+                      max:
+                        type: integer
+  targets:
+    - target: admission.k8s.gatekeeper.sh
+      rego: |
+        package k8spspallowedusers
+ 
+        violation[{"msg": msg}] {
+          input.review.kind.kind == "Pod"
+          su := input.review.object.spec.securityContext.runAsUser
+          not user_allowed(su)
+          msg := sprintf("runAsUser %v is not allowed", [su])
+        }
+ 
+        user_allowed(user) {
+          user == 0
+        }
+{{- end }}

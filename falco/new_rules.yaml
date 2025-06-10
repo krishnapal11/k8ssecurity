@@ -1,0 +1,83 @@
+customRules:
+  falco_custom_rules_set: |-
+    - rule: Example Rule
+      desc: An illustrative rule demonstrating evaluation priority with parentheses
+      condition: >
+        (syscall.type = execve and proc.name = "/bin/bash") or
+        (syscall.type = open and (fd.name contains "/etc/passwd" or fd.name contains "/etc/shadow"))
+      output: Log the relevant event.
+      priority: debug
+      source: syscall
+    - rule: Read SSH Private Keys
+      desc: Detects attempts to read common SSH private key files by non-standard processes.
+      condition: open_read and (fd.name endswith "id_rsa" or fd.name endswith "id_dsa" or fd.name endswith "id_ecdsa" or fd.name endswith "id_ed25519") and not proc.name in (ssh, scp, sftp, sshd, ansible, puppet, chef, git, vscode-server, expected_backup_tool) and not proc.exepath startswith "/usr/libexec/openssh/"
+      output: "SSH private key read attempt (user=%user.name command=%proc.cmdline file=%fd.name container_id=%container.id image=%container.image)"
+      priority: ERROR
+      source: syscall
+      tags: [filesystem, sensitive_files, ssh, mitre_credential_access_credentials_from_password_stores]
+    # --- New Basic Custom Rules Below ---
+    - rule: Suspicious Sudo Usage
+      desc: Detects sudo execution not from common shells.
+      condition: spawned_process and proc.name="sudo" and not proc.pname in (bash, sh, zsh, ksh)
+      output: "Suspicious sudo usage (user=%user.name command=%proc.cmdline parent=%proc.pname container_id=%container.id image=%container.image)"
+      priority: WARNING
+      source: syscall
+      tags: [privilege_escalation, process, sudo]
+    
+    - rule: shell_in_container
+      desc: notice shell activity within a container
+      condition: >
+        evt.type = execve and 
+        evt.dir = < and 
+        container.id != host and 
+        (proc.name = bash or
+        proc.name = ksh)    
+      output: >
+        shell in a container
+        (user=%user.name container_id=%container.id container_name=%container.name 
+        shell=%proc.name parent=%proc.pname cmdline=%proc.cmdline)    
+      priority: WARNING
+
+    - rule: File Access Under /etc/shadow
+      desc: Detect attempts to access the shadow password file
+      condition: open_read and fd.name = "/etc/shadow" and not proc.name in (sshd, sudo, su, login, passwd, unix_chkpwd)
+      output: "Shadow password file accessed (user=%user.name command=%proc.cmdline file=%fd.name container_id=%container.id image=%container.image)"
+      priority: WARNING
+      source: syscall
+      tags: [filesystem, sensitive_files, authentication]
+
+    - rule: Unexpected Setuid Binaries
+      desc: Detect execution of unexpected setuid binaries
+      condition: spawned_process and proc.is_suid_root=true and not proc.name in (sudo, su, passwd, mount, umount, ping, ssh-agent)
+      output: "Unexpected setuid binary executed (user=%user.name command=%proc.cmdline container_id=%container.id image=%container.image)"
+      priority: WARNING
+      source: syscall
+      tags: [process, privilege_escalation]
+
+    - rule: Sensitive Directory Access
+      desc: Detect access to sensitive directories
+      condition: open_read and (fd.directory = "/root" or fd.directory = "/var/lib/kubelet") and not user.name = "root"
+      output: "Sensitive directory accessed by non-root user (user=%user.name command=%proc.cmdline directory=%fd.directory container_id=%container.id image=%container.image)"
+      priority: WARNING
+      source: syscall
+      tags: [filesystem, sensitive_files]
+
+    - rule: Clear Bash History Command
+      desc: An attempt to clear or manipulate bash history using common commands.
+      condition: spawned_process and proc.name in (bash,sh,zsh,ksh) and (proc.cmdline contains "history -c" or proc.cmdline contains "history -w" or proc.cmdline contains "unset HISTFILE" or proc.cmdline contains "echo '' > ~/.bash_history" or proc.cmdline contains "ln -sf /dev/null ~/.bash_history") and not proc.pname in (sshd, legitimate_cleanup_script)
+      output: "Bash history cleared or manipulated (user=%user.name command=%proc.cmdline by parent=%proc.pname container_id=%container.id image=%container.image)"
+      priority: WARNING
+      source: syscall
+      tags: [process, shell, evasion, mitre_defense_evasion_indicator_removal_on_host]
+      
+    - rule: Execution with LD_PRELOAD or LD_LIBRARY_PATH Hijacking
+      desc: Detects execution with LD_PRELOAD or LD_LIBRARY_PATH, common for library hijacking.
+      condition: >
+        execve and (evt.env contains "LD_PRELOAD=" or evt.env contains "LD_LIBRARY_PATH=")
+        and not proc.is_pkg_mgmt_proc
+        and not proc.name in (steam, lutris, wine, known_game_launcher, dev_test_runner)
+        and not container.image.repository in (trusted_dev_images)
+      output: "Execution with LD_PRELOAD/LD_LIBRARY_PATH (user=%user.name command=%proc.cmdline env=%evt.env container_id=%container.id image=%container.image pod_name=%k8s.pod.name)"
+      priority: ERROR
+      source: syscall
+      tags: [process, evasion, library_hijack, mitre_persistence_hijack_execution_flow]

@@ -1,0 +1,24 @@
+{{- $templateName := "k8spspreadonlyrootfilesystem" }}
+{{- $templateConfig := index .Values.constraintTemplates $templateName }}
+
+{{- if $templateConfig.enabled }}
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: K8sPSPReadOnlyRootFilesystem {{/* Must match spec.crd.spec.names.kind from the ConstraintTemplate */}}
+metadata:
+  name: {{ $templateName }}-enforce {{/* Name of this specific constraint instance */}}
+  labels:
+    {{- include "gatekeeper.commonLabels" . | nindent 4 }}
+spec:
+  enforcementAction: {{ $templateConfig.enforcementAction | default "dryrun" }} # Default to dryrun
+  match:
+    {{- /* Default match targets Pods, as this is a Pod security setting. User can override. */}}
+    {{- $defaultMatch := dict "kinds" (list (dict "apiGroups" (list "") "kinds" (list "Pod"))) }}
+    {{- toYaml ($templateConfig.match | default $defaultMatch) | nindent 4 }}
+  parameters:
+    {{- /* Pass 'exemptImages' list. Rego handles if it's not provided or is empty. */}}
+    {{- if $templateConfig.params }}
+    {{- toYaml $templateConfig.params | nindent 4 }}
+    {{- else }}
+    {} # Pass an empty object if no params (like exemptImages) are defined in values.yaml.
+    {{- end }}
+{{- end }}

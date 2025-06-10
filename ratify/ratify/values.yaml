@@ -1,0 +1,226 @@
+# Default values for Ratify Helm Chart
+# This is a YAML-formatted file.
+
+nameOverride: ""
+fullnameOverride: ""
+
+# Image configuration
+image:
+  repository: ghcr.io/ratify-project/ratify
+  pullPolicy: IfNotPresent
+  tag: v1.4.0
+
+# Service account configuration
+serviceAccount:
+  create: true
+  name: "ratify-admin"
+  annotations:
+    eks.amazonaws.com/role-arn: "arn:aws:iam::730335384723:role/RatifyStandaloneWebhookRole"
+
+# AWS environment variables
+env:
+  - name: AWS_STS_REGIONAL_ENDPOINTS
+    value: "regional"
+  - name: AWS_DEFAULT_REGION
+    value: "ap-south-1"
+  - name: AWS_REGION
+    value: "ap-south-1"
+
+# Logger configuration
+logger:
+  level: info
+  formatter: text
+  requestHeaders:
+    traceIDHeaderName: "[]"
+
+# CRL configuration
+crl:
+  cache:
+    enabled: true
+
+# Notation configuration needed by templates
+notation:
+  enabled: true
+  trustPolicies:
+    - name: default
+      registryScopes:
+        - "*"
+      trustStores:
+        - "signingAuthority:notationCerts0"
+      trustedIdentities:
+        - "arn:aws:signer:ap-south-1:730335384723:/signing-profiles/interns_signer_profiles"
+
+# Add notation certificates
+notationCerts:
+  - |
+    -----BEGIN CERTIFICATE-----
+    MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAlRuRnThUjU8/prwYxbty
+    WPT9pURI3lbsKMiB6Fn/VHOKE13p4D8xgOCADpdRagdT6n4etr9atzDKUSvpMtR3
+    CP5noB5UnPTpMSZrnk6QJLW6JQg1uZdI/j+Jhe6KtBfmD3VYmPTN9RBFcH+11bJg
+    hPPX1+PMBCnSWWIVQZp6wdKgGrFNJMIEoaLM0SLRGXHxwuy33JtSKMQxuCqIJBR5
+    sjMQdfCYydcLJRKZQfmxvnCxNxZYrzoaHEbYnc+rzm9qWEBQQge/TXS1C7KhHPcQ
+    Sn9e9GBi3FPBPKC5GuBRWENAK1Pw5ltCqUJVfbj5h22XqTS1bNdEL0PwqBkBimsL
+    G3cKtDGVJ5Zj4+1Dy+jKM3eiRyJgTiKOt0HKzLDAxyPUO7iuQWJPABYBZwIDAQAB
+    -----END CERTIFICATE-----
+
+# Notation verifier configuration
+verifier:
+  notation:
+    enabled: true
+    trustPolicyDoc:
+      version: "1.0"
+      trustPolicies:
+        - name: default
+          registryScopes:
+            - "*"
+          signatureVerification:
+            level: strict
+          trustStores:
+            - "signingAuthority:certs"
+          trustedIdentities:
+            - "arn:aws:signer:ap-south-1:730335384723:/signing-profiles/interns_signer_profiles"
+    verificationCertStores:
+      signingAuthority:
+        certs:
+          - ratify-notation-inline-cert
+
+# AWS Signer plugin configuration
+plugins:
+  aws-signer:
+    enabled: true
+    source:
+      artifact: public.ecr.aws/aws-signer/notation-plugin:linux-amd64-latest
+
+# Gatekeeper integration
+gatekeeper:
+  enabled: true
+  version: "v1"
+  systemDefault: false
+  webhookConfigurationName: "gatekeeper-webhook-configuration"
+  validatingWebhookName: "validation.gatekeeper.sh"
+  failurePolicy: Ignore
+  namespaceSelector:
+    matchExpressions:
+      - key: kubernetes.io/metadata.name
+        operator: In
+        values:
+          - test-templates
+
+# Policy configuration
+policy:
+  useRego: false
+  name: ratify-policy
+
+# Constraint template and constraint configuration
+constraint:
+  enabled: true
+  name: require-image-signatures
+  enforcementAction: deny
+  match:
+    kinds:
+      - apiGroups: [""]
+        kinds: ["Pod"]
+    namespaces:
+      - test-templates
+  rego: |
+    package ratifyverification
+
+    violation[{"msg": msg}] {
+      image := input.review.object.spec.containers[_].image
+      not valid_image(image)
+      msg := sprintf("Image %q failed signature verification", [image])
+    }
+
+    violation[{"msg": msg}] {
+      image := input.review.object.spec.initContainers[_].image
+      not valid_image(image)
+      msg := sprintf("Image %q failed signature verification", [image])
+    }
+
+    valid_image(image) {
+      startswith(image, "730335384723.dkr.ecr.ap-south-1.amazonaws.com/kubeguard-petclinic-app")
+    }
+
+    valid_image(image) {
+      image_verification := external_data({"provider": "ratify-provider", "keys": ["image"], "image": image})
+      image_verification.verified == true
+    }
+
+# ORAS configuration - Fixed TTL to be integer seconds instead of string
+oras:
+  useHttp: false
+  authProviders:
+    azureManagedIdentityEnabled: false
+    awsEcrBasicEnabled: true
+    awsApiOverride:
+      enabled: false
+  cache:
+    enabled: true
+    ttl: 600  # 10 minutes in seconds (integer)
+
+# Provider configuration - Fixed TTL to include unit
+provider:
+  tls:
+    crt: ""
+    key: ""
+    cabundle: ""
+    caCert: ""
+    caKey: ""
+  timeout:
+    validationTimeoutSeconds: 3
+    mutationTimeoutSeconds: 3
+  cache:
+    enabled: true
+    type: "ristretto"
+    name: "dapr-redis"
+    cacheSizeMb: 256
+    ttl: "10s"  # Changed from 10 to "10s" to include the unit
+  
+
+# Disable upgradeCRDs to avoid conflicts with existing resources
+upgradeCRDs:
+  enabled: false
+
+# Add RBAC configuration to fix nil pointer error
+rbac:
+  create: true
+
+# Add CRDs resources configuration to fix nil pointer error
+crds:
+  resources:
+    limits:
+      cpu: 100m
+      memory: 128Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+# Add these to prevent other nil pointer errors
+cosign:
+  enabled: false
+vulnerabilityreport:
+  enabled: false
+sbom:
+  enabled: false
+azurekeyvault:
+  enabled: false
+akvCertConfig:
+  enabled: false
+azureWorkloadIdentity:
+  clientId: ""
+featureFlags:
+  RATIFY_CERT_ROTATION: true
+  RATIFY_EXPERIMENTAL_DYNAMIC_PLUGINS: true
+  RATIFY_EXPERIMENTAL_HIGH_AVAILABILITY: false
+instrumentation:
+  metricsEnabled: true
+  metricsType: prometheus
+  metricsPort: 8888
+healthPort: 9099
+resources:
+  limits:
+    cpu: 1
+    memory: 512Mi
+  requests:
+    cpu: 600m
+    memory: 512Mi

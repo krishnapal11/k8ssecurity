@@ -1,0 +1,26 @@
+{{- $templateName := "k8spspselinuxv2" }}
+{{- $templateConfig := index .Values.constraintTemplates $templateName }}
+
+{{- if $templateConfig.enabled }}
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: K8sPSPSELinuxV2 {{/* Must match spec.crd.spec.names.kind from the ConstraintTemplate */}}
+metadata:
+  name: {{ $templateName }}-enforce {{/* Name of this specific constraint instance */}}
+  labels:
+    {{- include "gatekeeper.commonLabels" . | nindent 4 }}
+spec:
+  enforcementAction: {{ $templateConfig.enforcementAction | default "dryrun" }} # Default to dryrun
+  match:
+    {{- /* Default match targets Pods. User can override. */}}
+    {{- $defaultMatch := dict "kinds" (list (dict "apiGroups" (list "") "kinds" (list "Pod"))) }}
+    {{- toYaml ($templateConfig.match | default $defaultMatch) | nindent 4 }}
+  parameters:
+    {{- /* Pass 'allowedSELinuxOptions' and 'exemptImages'.
+         Rego handles if 'allowedSELinuxOptions' is empty/missing (meaning any explicit SELinux setting is disallowed).
+         Rego handles if 'exemptImages' is empty/missing (meaning no exemptions). */}}
+    {{- if $templateConfig.params }}
+    {{- toYaml $templateConfig.params | nindent 4 }}
+    {{- else }}
+    {}
+    {{- end }}
+{{- end }}

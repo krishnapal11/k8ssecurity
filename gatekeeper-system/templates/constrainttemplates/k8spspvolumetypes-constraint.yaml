@@ -1,0 +1,28 @@
+{{- $templateName := "k8spspvolumetypes" }}
+{{- $templateConfig := index .Values.constraintTemplates $templateName }}
+
+{{- if $templateConfig.enabled }}
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: K8sPSPVolumeTypes {{/* Must match spec.crd.spec.names.kind from the ConstraintTemplate */}}
+metadata:
+  name: {{ $templateName }}-enforce {{/* Name of this specific constraint instance */}}
+  labels:
+    {{- include "gatekeeper.commonLabels" . | nindent 4 }}
+spec:
+  enforcementAction: {{ $templateConfig.enforcementAction | default "dryrun" }} # Default to dryrun
+  match:
+    {{- /* Default match targets Pods, as this policy inspects pod volumes. User can override. */}}
+    {{- $defaultMatch := dict "kinds" (list (dict "apiGroups" (list "") "kinds" (list "Pod"))) }}
+    {{- toYaml ($templateConfig.match | default $defaultMatch) | nindent 4 }}
+  parameters:
+    {{- /* Pass the 'volumes' list. This is crucial for the policy.
+         If 'params.volumes' is empty or not provided in values.yaml, the Rego logic will effectively disallow all volume types. */}}
+    {{- if $templateConfig.params }}
+    {{- toYaml $templateConfig.params | nindent 4 }}
+    {{- else }}
+    # It's important to define 'params.volumes' in values.yaml for this policy.
+    # Example: volumes: ["configMap", "secret", "emptyDir"] or volumes: ["*"]
+    # Passing empty {} means no volume types are explicitly allowed by parameter.
+    {}
+    {{- end }}
+{{- end }}

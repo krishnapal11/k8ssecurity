@@ -1,0 +1,20 @@
+{{- $templateName := "k8spsphostnamespace" }}
+{{- $templateConfig := index .Values.constraintTemplates $templateName }}
+
+{{- if $templateConfig.enabled }}
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: K8sPSPHostNamespace {{/* Must match spec.crd.spec.names.kind from the ConstraintTemplate */}}
+metadata:
+  name: {{ $templateName }}-enforce {{/* Name of this specific constraint instance */}}
+  labels:
+    {{- include "gatekeeper.commonLabels" . | nindent 4 }}
+spec:
+  enforcementAction: {{ $templateConfig.enforcementAction | default "dryrun" }} # Default to dryrun
+  match:
+    {{- /* Default match targets Pods, as this is a Pod security setting. User can override. */}}
+    {{- $defaultMatch := dict "kinds" (list (dict "apiGroups" (list "") "kinds" (list "Pod"))) }}
+    {{- toYaml ($templateConfig.match | default $defaultMatch) | nindent 4 }}
+  # This ConstraintTemplate defines no configurable parameters in its CRD validation schema (openAPIV3Schema).
+  # Gatekeeper requires the 'parameters' field to be present if the schema type is 'object'.
+  parameters: {}
+{{- end }}

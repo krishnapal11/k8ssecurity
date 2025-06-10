@@ -1,0 +1,90 @@
+{{- $templateName := "k8srequiredannotations" }}
+{{- $templateConfig := index .Values.constraintTemplates $templateName }}
+
+{{- if $templateConfig.enabled }}
+apiVersion: templates.gatekeeper.sh/v1
+kind: ConstraintTemplate
+metadata:
+  name: {{ $templateName }}
+  labels:
+    {{- include "gatekeeper.commonLabels" . | nindent 4 }}
+  annotations:
+    metadata.gatekeeper.sh/title: "Required Annotations"
+    metadata.gatekeeper.sh/version: "1.0.1" # Version from your input
+    description: "Requires resources to have a specified set of annotations. Annotation values can optionally be validated against a regular expression."
+spec:
+  crd:
+    spec:
+      names:
+        kind: K8sRequiredAnnotations # Static Kind
+      validation:
+        legacySchema: false
+        openAPIV3Schema:
+          type: object # Root object for parameters
+          properties:
+            annotations:
+              type: array
+              description: "A list of annotations the object must specify. For each annotation, a key is required and an allowedRegex is optional."
+              items:
+                type: object
+                properties:
+                  key:
+                    type: string
+                    description: "The required annotation key."
+                  allowedRegex:
+                    type: string
+                    description: "If specified, a regular expression the annotation's value must match."
+                required: # 'key' is a required property for each item in 'annotations'
+                  - key
+            message:
+              type: string
+              description: "An optional custom message to override the default violation messages."
+  targets:
+    - target: admission.k8s.gatekeeper.sh
+      rego: |
+        package k8srequiredannotations
+
+        get_message(parameters, _default) = msg {
+          p_msg := object.get(parameters, "message", "")
+          not p_msg == ""
+          msg := p_msg
+        } else = msg {
+          msg := _default
+        }
+
+        # Violation for missing annotations
+        violation[{"msg": msg, "details": {"missing_annotations": missing_keys}}] {
+          provided_annotations := object.get(input.review.object.metadata, "annotations", {})
+          required_annotation_configs := object.get(input.parameters, "annotations", [])
+          
+          required_keys := {config.key | config := required_annotation_configs[_]}
+          provided_keys := {key | provided_annotations[key]}
+          
+          missing_keys := required_keys - provided_keys
+          count(missing_keys) > 0
+          
+          def_msg := sprintf("Object '%v' in namespace '%v' is missing required annotations. Must provide: %v", [input.review.object.metadata.name, object.get(input.review.object.metadata, "namespace", "N/A"), missing_keys])
+          msg := get_message(input.parameters, def_msg)
+        }
+
+        # Violation for regex mismatch
+        violation[{"msg": msg, "details": {"annotation_key": key, "annotation_value": value, "regex_pattern": config.allowedRegex}}] {
+          provided_annotations := object.get(input.review.object.metadata, "annotations", {})
+          required_annotation_configs := object.get(input.parameters, "annotations", [])
+          
+          config := required_annotation_configs[_]
+          key := config.key
+          
+          # Only check regex if key is present in the object and regex is defined for it in parameters
+          value := object.get(provided_annotations, key, "__undefined__") # Use a sentinel value
+          value != "__undefined__" # Ensure key was actually present
+
+          regex_pattern := object.get(config, "allowedRegex", "")
+          regex_pattern != "" # Regex pattern must be non-empty in the policy parameter
+          
+          not regex.match(regex_pattern, value)
+          
+          def_msg := sprintf("Annotation <%v: %v> for object '%v' in namespace '%v' does not satisfy allowed regex pattern: %v", [key, value, input.review.object.metadata.name, object.get(input.review.object.metadata, "namespace", "N/A"), regex_pattern])
+          msg := get_message(input.parameters, def_msg)
+        }
+{{- end }}

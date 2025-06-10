@@ -1,0 +1,535 @@
+replicas: 3
+revisionHistoryLimit: 10
+auditInterval: 60
+metricsBackends: ["prometheus"]
+auditMatchKindOnly: false
+constraintViolationsLimit: 20
+auditFromCache: false
+disableAudit: false
+disableMutation: false
+disableValidatingWebhook: false
+validatingWebhookName: gatekeeper-validating-webhook-configuration
+validatingWebhookTimeoutSeconds: 3
+validatingWebhookFailurePolicy: Ignore
+validatingWebhookAnnotations: {}
+validatingWebhookExemptNamespacesLabels: {}
+validatingWebhookObjectSelector: {}
+validatingWebhookMatchConditions: []
+validatingWebhookCheckIgnoreFailurePolicy: Fail
+validatingWebhookCustomRules: {}
+validatingWebhookURL: null
+enableDeleteOperations: false
+enableConnectOperations: false
+enableExternalData: true
+enableGeneratorResourceExpansion: true
+enableTLSHealthcheck: false
+maxServingThreads: -1
+mutatingWebhookName: gatekeeper-mutating-webhook-configuration
+mutatingWebhookFailurePolicy: Ignore
+mutatingWebhookReinvocationPolicy: Never
+mutatingWebhookAnnotations: {}
+mutatingWebhookExemptNamespacesLabels: {}
+mutatingWebhookObjectSelector: {}
+mutatingWebhookMatchConditions: []
+mutatingWebhookTimeoutSeconds: 1
+mutatingWebhookCustomRules: {}
+mutatingWebhookURL: null
+mutationAnnotations: false
+auditChunkSize: 500
+logLevel: DEBUG
+logDenies: false
+logMutations: false
+admissionEventsInvolvedNamespace: false
+auditEventsInvolvedNamespace: false
+resourceQuota: true
+externaldataProviderResponseCacheTTL: 3m
+enableK8sNativeValidation: true
+image:
+  repository: openpolicyagent/gatekeeper
+  crdRepository: openpolicyagent/gatekeeper-crds
+  release: v3.19.1
+  pullPolicy: IfNotPresent
+  pullSecrets: []
+preInstall:
+  crdRepository:
+    image:
+      repository: null
+      tag: v3.19.1
+postUpgrade:
+  labelNamespace:
+    serviceAccount:
+      name: gatekeeper-update-namespace-label-post-upgrade
+      create: true
+    enabled: false # This post-upgrade hook is disabled
+    image:
+      repository: openpolicyagent/gatekeeper-crds
+      tag: v3.19.1
+      pullPolicy: IfNotPresent
+      pullSecrets: []
+    extraNamespaces: []
+    podSecurity: ["pod-security.kubernetes.io/audit=restricted",
+      "pod-security.kubernetes.io/audit-version=latest",
+      "pod-security.kubernetes.io/warn=restricted",
+      "pod-security.kubernetes.io/warn-version=latest",
+      "pod-security.kubernetes.io/enforce=restricted",
+      "pod-security.kubernetes.io/enforce-version=v1.24"]
+    extraAnnotations: {}
+    priorityClassName: ""
+  affinity: {}
+  tolerations: # Tolerations for the post-upgrade hook job pod
+    - effect: NoSchedule
+      key: kubeguard
+      operator: Exists
+  nodeSelector: {kubernetes.io/os: linux}
+  resources: {}
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+      - ALL
+    readOnlyRootFilesystem: true
+    runAsGroup: 999
+    runAsNonRoot: true
+    runAsUser: 1000
+postInstall:
+  labelNamespace: # This post-install hook for labeling namespaces is enabled
+    serviceAccount:
+      name: gatekeeper-update-namespace-label
+      create: true
+    enabled: true
+    extraRules: []
+    image:
+      repository: openpolicyagent/gatekeeper-crds
+      tag: v3.19.1
+      pullPolicy: IfNotPresent
+      pullSecrets: []
+    extraNamespaces: []
+    podSecurity: ["pod-security.kubernetes.io/audit=restricted",
+      "pod-security.kubernetes.io/audit-version=latest",
+      "pod-security.kubernetes.io/warn=restricted",
+      "pod-security.kubernetes.io/warn-version=latest",
+      "pod-security.kubernetes.io/enforce=restricted",
+      "pod-security.kubernetes.io/enforce-version=v1.24"]
+    extraAnnotations: {}
+    priorityClassName: ""
+  probeWebhook: # This post-install hook for probing webhook is enabled
+    enabled: true
+    image:
+      repository: curlimages/curl
+      tag: 8.12.0
+      pullPolicy: IfNotPresent
+      pullSecrets: []
+    waitTimeout: 60
+    httpTimeout: 2
+    insecureHTTPS: false
+    priorityClassName: ""
+  affinity: {}
+  tolerations: # General tolerations for post-install hook job pods
+    - effect: NoSchedule
+      key: kubeguard
+      operator: Exists
+  nodeSelector: {kubernetes.io/os: linux}
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+      - ALL
+    readOnlyRootFilesystem: true
+    runAsGroup: 999
+    runAsNonRoot: true
+    runAsUser: 1000
+preUninstall:
+  deleteWebhookConfigurations:
+    serviceAccount:
+      name: gatekeeper-delete-webhook-configs
+      create: true
+    extraRules: []
+    enabled: true # This pre-uninstall hook is disabled
+    image:
+      repository: openpolicyagent/gatekeeper-crds
+      tag: v3.19.1
+      pullPolicy: IfNotPresent
+      pullSecrets: []
+    priorityClassName: ""
+  affinity: {}
+  tolerations: # Tolerations for the pre-uninstall hook job pod
+    - effect: NoSchedule
+      key: kubeguard
+      operator: Exists
+  nodeSelector: {kubernetes.io/os: linux}
+  resources: {}
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+      - ALL
+    readOnlyRootFilesystem: true
+    runAsGroup: 999
+    runAsNonRoot: true
+    runAsUser: 1000
+podAnnotations: {}
+auditPodAnnotations: {}
+podLabels: {}
+podCountLimit: "100"
+secretAnnotations: {}
+enableRuntimeDefaultSeccompProfile: true
+controllerManager:
+  serviceAccount:
+    name: gatekeeper-admin
+  containerName: manager
+  exemptNamespaces: []
+  exemptNamespacePrefixes: []
+  hostNetwork: false
+  dnsPolicy: ClusterFirst
+  port: 8443
+  metricsPort: 8888
+  healthPort: 9090
+  readinessTimeout: 1
+  livenessTimeout: 1
+  priorityClassName: system-cluster-critical
+  disableCertRotation: false
+  tlsMinVersion: "1.3" # Changed to string for safety
+  clientCertName: ""
+  strategyType: RollingUpdate
+  strategyRollingUpdate: {}
+  podLabels: {}
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - podAffinityTerm:
+            labelSelector:
+              matchExpressions:
+                - key: gatekeeper.sh/operation
+                  operator: In
+                  values:
+                    - webhook
+            topologyKey: kubernetes.io/hostname
+          weight: 100
+  topologySpreadConstraints: []
+  tolerations:
+    - effect: NoSchedule
+      key: kubeguard
+      operator: Exists
+  nodeSelector: {kubernetes.io/os: linux}
+  resources:
+    limits:
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 512Mi
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+      - ALL
+    readOnlyRootFilesystem: true
+    runAsGroup: 999
+    runAsNonRoot: true
+    runAsUser: 1000
+  podSecurityContext:
+    fsGroup: 999
+    supplementalGroups:
+      - 999
+  extraRules: []
+  networkPolicy:
+    enabled: false
+    ingress: []
+audit:
+  serviceAccount:
+    name: gatekeeper-admin
+  containerName: manager
+  hostNetwork: false
+  dnsPolicy: ClusterFirst
+  metricsPort: 8888
+  healthPort: 9090
+  readinessTimeout: 1
+  livenessTimeout: 1
+  priorityClassName: system-cluster-critical
+  disableCertRotation: false
+  podLabels: {}
+  affinity: {}
+  tolerations:
+    - effect: NoSchedule
+      key: kubeguard
+      operator: Exists
+  nodeSelector: {kubernetes.io/os: linux}
+  resources:
+    limits:
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 512Mi
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+      - ALL
+    readOnlyRootFilesystem: true
+    runAsGroup: 999
+    runAsNonRoot: true
+    runAsUser: 1000
+  podSecurityContext:
+    fsGroup: 999
+    supplementalGroups:
+      - 999
+  writeToRAMDisk: false
+  extraRules: []
+crds:
+  affinity: {}
+  tolerations: # Tolerations for the CRD hook job pod (upgradeCRDs)
+    - effect: NoSchedule
+      key: kubeguard
+      operator: Exists
+  nodeSelector: {kubernetes.io/os: linux}
+  resources: {}
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+      - ALL
+    readOnlyRootFilesystem: true
+    runAsGroup: 65532
+    runAsNonRoot: true
+    runAsUser: 65532
+pdb:
+  controllerManager:
+    minAvailable: 1
+service: {}
+disabledBuiltins: ["{http.send}"]
+psp:
+  enabled: true # User enabled this
+upgradeCRDs: # This hook job applies/updates CRDs from the crds/ image
+  serviceAccount:
+    create: true
+    name: gatekeeper-admin-upgrade-crds
+  enabled: true
+  extraRules: []
+  priorityClassName: ""
+rbac:
+  create: true
+externalCertInjection:
+  enabled: false
+  secretName: gatekeeper-webhook-server-cert
+serviceAccount:
+  gatekeeperAdmin:
+    create: true
+# ---------------------------------------------------------------------
+# Custom ConstraintTemplates Configuration
+# ---------------------------------------------------------------------
+# This section allows you to enable and configure the custom ConstraintTemplates
+# that have been added to the 'templates/constrainttemplates/' directory of this chart.
+#
+# For each template:
+#   enabled: Set to 'true' to deploy this constraint. Defaults to 'false'.
+#   enforcementAction: Defines the action Gatekeeper takes. Defaults to "dryrun".
+#                      Other options: "deny", "warn".
+#   match: Defines which resources this constraint applies to.
+#          The 'kinds' block specifies apiGroups and kinds.
+#          You can also add 'namespaces', 'excludedNamespaces', 'labelSelector', 'namespaceSelector'.
+#          Review and customize the default 'match' criteria for each policy.
+#   params: Parameters specific to this constraint template.
+#           Refer to the ConstraintTemplate definition for available parameters.
+#           Commented-out examples are provided below.
+# ---------------------------------------------------------------------
+
+constraintTemplates:
+  k8sallowedrepos:
+    enabled: true
+    enforcementAction: "deny"
+    match:
+      kinds:
+        - apiGroups: [""] # Core API group
+          kinds: ["Pod"]
+        - apiGroups: ["apps"]
+          kinds: ["Deployment", "StatefulSet", "DaemonSet"]
+        - apiGroups: ["batch"]
+          kinds: ["Job", "CronJob"]
+      namespaces:
+        - "test-templates"
+    params:
+      repos: # User already populated this - great!
+        - "730335384723.dkr.ecr.ap-south-1.amazonaws.com/"
+        - "gcr.io/"
+        - "docker.io/library/"
+        # Add other trusted repositories here
+
+
+  k8sdisallowedtags:
+    enabled: true
+    enforcementAction: "deny"
+    match:
+      kinds:
+        - apiGroups: [""] # Core API group
+          kinds: ["Pod"]
+        - apiGroups: ["apps"]
+          kinds: ["Deployment", "StatefulSet", "DaemonSet"]
+        - apiGroups: ["batch"]
+          kinds: ["Job", "CronJob"]
+      namespaces:
+        - "test-templates"
+    params:
+      tags: # Example: Disallow "latest" and "SNAPSHOT" tags
+        - "latest"
+        - "SNAPSHOT"
+      exemptImages:
+        # - "my-company/important-app:latest" # If you must exempt specific "latest" tags
+        - "latest" #This exempts an image *named* "latest", not images *tagged* with "latest".
+
+  k8spspallowedusers:
+    enabled: true
+    enforcementAction: "dryrun"
+    match:
+      kinds:
+        - apiGroups: [""] # Core API group
+          kinds: ["Pod"]
+        - apiGroups: ["apps"]
+          kinds: ["Deployment", "StatefulSet", "DaemonSet"]
+        - apiGroups: ["batch"]
+          kinds: ["Job", "CronJob"]
+      namespaces:
+        - "test-templates"
+    params:
+      exemptImages:
+        - "730335384723.dkr.ecr.ap-south-1.amazonaws.com/kubeguard-petclinic-app"
+      runAsUser: # REVIEW: "RunAsAny" is very permissive. Consider "MustRunAsNonRoot".
+        rule: "MustRunAsNonRoot"
+      fsGroup:   #defines the group ID applied to the Pod's volumes.
+        rule: "RunAsAny"
+        ranges:
+          - min: 1     # Ensures fsGroup is not root (GID 0)
+            max: 65535
+      runAsGroup:  # defines the primary GID for processes in the container.
+        rule: "MustRunAs"
+        ranges: 
+          - min: 1 # Ensures primary GID is not root
+            max: 65535
+      supplementalGroups:  #defines the secondary GIDs for processes in the container.
+        rule: "MustRunAs"
+        ranges: 
+          - min: 1    # Ensures supplemental GIDs are not root
+            max: 65535
+      # Ensure you configure these fields as per your security requirements.
+
+  k8srequiredlabels:
+    enabled: true
+    enforcementAction: "deny"
+    match: # REVIEW AND CUSTOMIZE: Target resources that should have these labels.
+      kinds:
+        - apiGroups: [""]
+          kinds: ["Pod", "Service", "ConfigMap", "Secret", "Namespace"]
+        - apiGroups: ["apps"]
+          kinds: ["Deployment", "StatefulSet", "DaemonSet"]
+        - apiGroups: ["batch"]
+          kinds: ["Job", "CronJob"]
+        - apiGroups: ["networking.k8s.io"]
+          kinds: ["Ingress"]
+      namespaces:
+        - "test-templates"
+    params:
+      # message: "Custom message for Rego: Missing or invalid labels." # Optional
+      labels: # Example: Require at least one common label to observe the policy
+        - key: "app.kubernetes.io/name"
+        # - key: "environment"
+        #   allowedRegex: "^(dev|staging|prod)$"
+
+  k8spsphostnamespace:
+    enabled: true
+    enforcementAction: "dryrun"
+    match:
+      kinds:
+        - apiGroups: [""] # Core API group
+          kinds: ["Pod"]
+      namespaces:
+        - "test-templates"
+    params: {} # This template takes no parameters.
+
+  k8spspprivilegedcontainer:
+    enabled: true
+    enforcementAction: "dryrun"
+    match:
+      kinds:
+        - apiGroups: [""] # Core API group
+          kinds: ["Pod"]
+      namespaces:
+        - "test-templates"
+    params:
+      exemptImages: # List of image patterns to exempt from privileged container restriction
+        # - "my-registry/privileged-debug-tool:*"
+        - "*"
+
+  k8spspreadonlyrootfilesystem:
+    enabled: true
+    enforcementAction: "dryrun"
+    match:
+      kinds:
+        - apiGroups: [""] # Core API group
+          kinds: ["Pod"]
+      namespaces:
+        - "test-templates"
+    params:
+      exemptImages: # List of image patterns to exempt from read-only root FS
+        # - "my-app/requires-writable-rootfs:v1"
+        - "*"
+
+
+  k8spspvolumetypes:
+    enabled: true
+    enforcementAction: "dryrun"
+    match:
+      kinds:
+        - apiGroups: [""] # Core API group
+          kinds: ["Pod"]
+      namespaces:
+        - "test-templates"
+    params:
+      # CRITICAL: Populate this list with allowed volume types or ["*"]
+      volumes:
+        - "configMap"
+        - "secret"
+        - "emptyDir"
+        - "projected"
+        - "downwardAPI"
+        - "persistentVolumeClaim"
+        # - "*" # Or use this to allow all volume types for initial testing
+
+  k8srequiredannotations:
+    enabled: true
+    enforcementAction: "dryrun"
+    match: # REVIEW AND CUSTOMIZE: Target resources that should have these annotations.
+      kinds:
+        - apiGroups: [""]
+          kinds: ["Pod", "Service", "ConfigMap", "Secret", "Namespace"]
+        - apiGroups: ["apps"]
+          kinds: ["Deployment", "StatefulSet", "DaemonSet"]
+        - apiGroups: ["batch"]
+          kinds: ["Job", "CronJob"]
+        - apiGroups: ["networking.k8s.io"]
+          kinds: ["Ingress"]
+      namespaces:
+        - "test-templates"
+    params:
+      # message: "Custom message for Rego: Missing or invalid annotations." # Optional
+      annotations: # Example: Require at least one common annotation
+        - key: "description"
+        # - key: "example.com/owner"
+        #   allowedRegex: ".+@example\\.com"
+
+
+  k8srequiredresources:
+    enabled: true # Was already true
+    enforcementAction: "dryrun"
+    match:
+      kinds:
+        - apiGroups: [""] # Core API group
+          kinds: ["Pod"]
+      namespaces:
+        - "test-templates"
+    params:
+      # exemptImages: # Optional
+      #   - "my-company/base-image:*"
+      limits: # Example: Require memory limits and cpu limits
+         - "cpu"
+         - "memory"
+      requests: # Example: Require memory requests and cpu requests
+         - "cpu"
+         - "memory"

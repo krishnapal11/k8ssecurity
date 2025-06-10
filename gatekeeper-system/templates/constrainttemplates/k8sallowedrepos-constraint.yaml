@@ -1,0 +1,30 @@
+{{- /* k8sallowedrepos-constraint.yaml */}}
+{{- $templateName := "k8sallowedrepos" }}
+{{- $templateConfig := index .Values.constraintTemplates $templateName }}
+
+{{- /* Create this constraint if the template is enabled AND the 'repos' parameter is provided,
+     as the policy is not very effective without a list of allowed repositories. */}}
+{{- if and $templateConfig.enabled $templateConfig.params.repos }}
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: K8sAllowedRepos {{/* Must match spec.crd.spec.names.kind from the ConstraintTemplate */}}
+metadata:
+  name: {{ $templateName }}-enforce {{/* Name of this specific constraint instance */}}
+  labels:
+    {{- /* Include common labels from _helpers.tpl */}}
+    {{- include "gatekeeper.commonLabels" . | nindent 4 }}
+spec:
+  enforcementAction: {{ $templateConfig.enforcementAction | default "dryrun" }} # Corrected typo and made configurable
+  match:
+    {{- /* Default match targets Pods. User can override via values.yaml $templateConfig.match */}}
+    {{- $defaultMatch := dict "kinds" (list (dict "apiGroups" (list "") "kinds" (list "Pod"))) }}
+    {{- toYaml ($templateConfig.match | default $defaultMatch) | nindent 4 }}
+  parameters:
+    {{- /* Pass the entire 'params' object from values.yaml.
+         The ConstraintTemplate's openAPIV3Schema expects an object with a 'repos' key. */}}
+    {{- if $templateConfig.params }}
+    {{- toYaml $templateConfig.params | nindent 4 }}
+    {{- else }}
+    # This policy requires params.repos. Ensure it's set in values.yaml.
+    {}
+    {{- end }}
+{{- end }}

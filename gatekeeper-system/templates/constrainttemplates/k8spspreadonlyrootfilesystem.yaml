@@ -1,0 +1,95 @@
+{{- $templateName := "k8spspreadonlyrootfilesystem" }}
+{{- $templateConfig := index .Values.constraintTemplates $templateName }}
+
+{{- if $templateConfig.enabled }}
+apiVersion: templates.gatekeeper.sh/v1
+kind: ConstraintTemplate
+metadata:
+  name: {{ $templateName }}
+  labels:
+    {{- include "gatekeeper.commonLabels" . | nindent 4 }}
+  annotations:
+    metadata.gatekeeper.sh/title: "Read Only Root Filesystem"
+    metadata.gatekeeper.sh/version: "1.1.1" # Using version from your input
+    description: "Requires pod containers to use a read-only root file system. Corresponds to the `readOnlyRootFilesystem` field in a PodSecurityPolicy."
+spec:
+  crd:
+    spec:
+      names:
+        kind: K8sPSPReadOnlyRootFilesystem # Static Kind
+      validation:
+        legacySchema: false
+        openAPIV3Schema:
+          type: object
+          description: "Requires the use of a read-only root file system by pod containers. Corresponds to the `readOnlyRootFilesystem` field in a PodSecurityPolicy."
+          properties:
+            exemptImages:
+              type: array
+              description: >-
+                Any container that uses an image that matches an entry in this list will be excluded from enforcement. Prefix-matching can be signified with `*`.
+                It is recommended that users use the fully-qualified Docker image name (e.g. start with a domain name) in order to avoid unexpectedly exempting images from an untrusted repository.
+              items:
+                type: string
+  targets:
+    - target: admission.k8s.gatekeeper.sh
+      rego: |
+        package k8spspreadonlyrootfilesystem
+
+        import data.lib.exclude_update.is_update
+        import data.lib.exempt_container.is_exempt
+
+        violation[{"msg": msg, "details": {"container_name": container.name}}] {
+          not is_update(input.review) # Apply policy mainly on CREATE operations
+          container := input_containers[_]
+          not is_exempt(container)
+          not is_effectively_read_only(container)
+          msg := sprintf("Container <%v> must have a read-only root filesystem ('securityContext.readOnlyRootFilesystem' must be set to true).", [container.name])
+        }
+
+        is_effectively_read_only(container) {
+          # True if 'securityContext.readOnlyRootFilesystem' is explicitly set to true.
+          # Defaults to false (not read-only) if the field or securityContext is missing.
+          object.get(object.get(container, "securityContext", {}), "readOnlyRootFilesystem", false) == true
+        }
+
+        input_containers[c] {
+          c := object.get(input.review.object.spec, "containers", [])[_]
+        }
+        input_containers[c] {
+          c := object.get(input.review.object.spec, "initContainers", [])[_]
+        }
+        input_containers[c] {
+          c := object.get(input.review.object.spec, "ephemeralContainers", [])[_]
+        }
+      libs:
+        - |
+          package lib.exclude_update
+
+          is_update(review) {
+            review.operation == "UPDATE"
+          }
+        - |
+          package lib.exempt_container
+
+          is_exempt(container) {
+            # exemptImages parameter is fetched from input.parameters
+            exempt_images := object.get(input.parameters, "exemptImages", [])
+            # Ensure container.image exists before trying to match
+            img := object.get(container, "image", "") 
+            count(exempt_images) > 0 # Ensure there are exemptions to check against
+            exemption := exempt_images[_]
+            _matches_exemption(img, exemption)
+          }
+
+          _matches_exemption(img, exemption) {
+            # Handles exact match or wildcard match if exemption ends with '*'
+            not endswith(exemption, "*")
+            exemption == img
+          }
+
+          _matches_exemption(img, exemption) {
+            endswith(exemption, "*")
+            prefix := trim_suffix(exemption, "*")
+            startswith(img, prefix)
+          }
+{{- end }}

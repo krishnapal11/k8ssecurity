@@ -1,0 +1,115 @@
+{{- $templateName := "k8srequiredlabels" }}
+{{- $templateConfig := index .Values.constraintTemplates $templateName }}
+
+{{- if $templateConfig.enabled }}
+apiVersion: templates.gatekeeper.sh/v1
+kind: ConstraintTemplate
+metadata:
+  name: {{ $templateName }}
+  labels:
+    {{- include "gatekeeper.commonLabels" . | nindent 4 }}
+  annotations:
+    metadata.gatekeeper.sh/title: "Required Labels"
+    metadata.gatekeeper.sh/version: "1.1.2"
+    description: "Requires resources to have a specified set of labels. Label values can optionally be validated against a regular expression."
+spec:
+  crd:
+    spec:
+      names:
+        kind: K8sRequiredLabels
+      validation:
+        legacySchema: false
+        openAPIV3Schema:
+          type: object
+          properties:
+            labels:
+              type: array
+              description: "A list of labels the object must specify. For each label, a key is required and an allowedRegex is optional."
+              items:
+                type: object
+                properties:
+                  key:
+                    type: string
+                    description: "The required label key."
+                  allowedRegex:
+                    type: string
+                    description: >-
+                      If specified, a regular expression the label's value must match.
+                      The value must contain at least one match for the regex.
+                required: # 'key' is essential for each label entry
+                  - key
+            message:
+              type: string
+              description: "An optional custom message to override the default Rego violation messages."
+  targets:
+    - target: admission.k8s.gatekeeper.sh
+      code: # This policy uses multiple validation engines
+        - engine: K8sNativeValidation
+          source:
+            validations:
+              - expression: >- # Validate all required label keys are present
+                  !has(variables.params.labels) || variables.params.labels.all(entry,
+                    has(variables.anyObject.metadata.labels) &&
+                    entry.key in variables.anyObject.metadata.labels
+                  )
+                messageExpression: >-
+                  "Object is missing required label(s). It must include all of the following keys: " +
+                  (has(variables.params.labels) ? variables.params.labels.map(l_entry, l_entry.key).join(", ") : "none specified in policy")
+              - expression: >- # Validate label values against regex if provided
+                  !has(variables.params.labels) || variables.params.labels.all(entry,
+                    !has(entry.allowedRegex) || entry.allowedRegex == "" || (
+                      has(variables.anyObject.metadata.labels) &&
+                      entry.key in variables.anyObject.metadata.labels &&
+                      string(variables.anyObject.metadata.labels[entry.key]).matches(string(entry.allowedRegex))
+                    )
+                  )
+                message: "One or more label values do not match their required regex pattern. Please check the 'allowedRegex' in the policy parameters for the respective label keys."
+        - engine: Rego
+          source:
+            rego: |
+              package k8srequiredlabels
+
+              get_message(parameters, _default) = msg {
+                p_msg := object.get(parameters, "message", "")
+                not p_msg == ""
+                msg := p_msg
+              } else = msg {
+                msg := _default
+              }
+
+              # Violation for missing labels
+              violation[{"msg": msg, "details": {"missing_labels": missing_keys}}] {
+                provided_labels := object.get(input.review.object.metadata, "labels", {})
+                required_label_configs := object.get(input.parameters, "labels", [])
+
+                required_keys := {config.key | config := required_label_configs[_]}
+                provided_keys := {key | provided_labels[key]}
+
+                missing_keys := required_keys - provided_keys
+                count(missing_keys) > 0
+
+                def_msg := sprintf("Object is missing required labels. Must provide: %v", [missing_keys])
+                msg := get_message(input.parameters, def_msg)
+              }
+
+              # Violation for regex mismatch
+              violation[{"msg": msg, "details": {"label_key": key, "label_value": value, "regex_pattern": config.allowedRegex}}] {
+                provided_labels := object.get(input.review.object.metadata, "labels", {})
+                required_label_configs := object.get(input.parameters, "labels", [])
+
+                config := required_label_configs[_]
+                key := config.key
+
+                # Only check regex if key is present in the object and regex is defined for it in parameters
+                value := object.get(provided_labels, key, "__undefined__") # Use a sentinel value
+                value != "__undefined__" # Ensure key was actually present
+
+                regex_pattern := object.get(config, "allowedRegex", "")
+                regex_pattern != "" # Regex pattern must be non-empty in the policy parameter
+
+                not regex.match(regex_pattern, value)
+
+                def_msg := sprintf("Label <%v: %v> does not satisfy allowed regex pattern: %v", [key, value, regex_pattern])
+                msg := get_message(input.parameters, def_msg)
+              }
+{{- end }}

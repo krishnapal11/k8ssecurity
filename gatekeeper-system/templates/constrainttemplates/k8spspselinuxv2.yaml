@@ -1,0 +1,130 @@
+{{- $templateName := "k8spspselinuxv2" }}
+{{- $templateConfig := index .Values.constraintTemplates $templateName }}
+
+{{- if $templateConfig.enabled }}
+apiVersion: templates.gatekeeper.sh/v1
+kind: ConstraintTemplate
+metadata:
+  name: {{ $templateName }}
+  labels:
+    {{- include "gatekeeper.commonLabels" . | nindent 4 }}
+  annotations:
+    metadata.gatekeeper.sh/title: "SELinux V2"
+    metadata.gatekeeper.sh/version: "1.0.3" # Version from your input
+    description: "Controls the SELinux options applied to pods and containers. If 'seLinuxOptions' are set on a pod or container, they must exactly match one of the configurations listed in 'allowedSELinuxOptions'."
+spec:
+  crd:
+    spec:
+      names:
+        kind: K8sPSPSELinuxV2 # Static Kind
+      validation:
+        legacySchema: false
+        openAPIV3Schema:
+          type: object
+          description: "Controls SELinux options. If 'seLinuxOptions' is set on a pod or container, it must exactly match one of the entries in 'allowedSELinuxOptions'."
+          properties:
+            allowedSELinuxOptions:
+              type: array
+              description: "A list of exact SELinux_Options configurations that are allowed. If 'seLinuxOptions' are set, they must match one of these."
+              items:
+                type: object
+                description: "An allowed SELinux_Options object (e.g., {level:s0, role:r0, type:spc_t, user:system_u}). All fields are optional within an item, but if specified in the pod/container, they must match."
+                properties:
+                  level:
+                    type: string
+                    description: "SELinux level."
+                  role:
+                    type: string
+                    description: "SELinux role."
+                  type:
+                    type: string
+                    description: "SELinux type."
+                  user:
+                    type: string
+                    description: "SELinux user."
+            exemptImages:
+              type: array
+              description: >-
+                Any container that uses an image that matches an entry in this list will be excluded from enforcement regarding its own SELinux options.
+                Prefix-matching can be signified with `*`.
+              items:
+                type: string
+  targets:
+    - target: admission.k8s.gatekeeper.sh
+      rego: |
+        package k8spspselinux # Original package name
+
+        import data.lib.exclude_update.is_update
+        import data.lib.exempt_container.is_exempt
+
+        # Pod-level SELinux options check
+        violation[{"msg": msg, "details": {"pod_selinux_options": pod_options_from_spec}}] {
+          not is_update(input.review)
+          spec_security_context := object.get(input.review.object.spec, "securityContext", {})
+          pod_options_from_spec := object.get(spec_security_context, "seLinuxOptions", null)
+          
+          pod_options_from_spec != null # Trigger violation only if seLinuxOptions are explicitly set at pod level
+          not input_seLinuxOptions_allowed(pod_options_from_spec)
+          
+          msg := sprintf("Pod-level SELinux options are not allowed for pod '%v'. Current options: %v. Must exactly match one of: %v", [input.review.object.metadata.name, pod_options_from_spec, object.get(input.parameters, "allowedSELinuxOptions", [])])
+        }
+
+        # Container-level SELinux options check
+        violation[{"msg": msg, "details": {"container_name": c.name, "container_selinux_options": container_options_from_spec}}] {
+          not is_update(input.review)
+          c := input_containers_with_selinuxoptions[_] # Iterate only over containers that define seLinuxOptions
+          not is_exempt(c) # Check exemption for the container
+          
+          container_options_from_spec := c.securityContext.seLinuxOptions # Known to exist due to iterator
+          not input_seLinuxOptions_allowed(container_options_from_spec)
+          
+          msg := sprintf("Container-level SELinux options are not allowed for container '%v' in pod '%v'. Current options: %v. Must exactly match one of: %v", [c.name, input.review.object.metadata.name, container_options_from_spec, object.get(input.parameters, "allowedSELinuxOptions", [])])
+        }
+
+        input_seLinuxOptions_allowed(options_to_check) {
+          allowed_list := object.get(input.parameters, "allowedSELinuxOptions", [])
+          # If allowed_list is empty, any options_to_check (if set) will fail this rule, which is correct.
+          # If allowed_list is not empty, options_to_check must exactly match one of them.
+          some allowed_config in allowed_list {
+            options_to_check == allowed_config
+          }
+        }
+        
+        # Iterator for containers that *have* seLinuxOptions defined in their securityContext
+        input_containers_with_selinuxoptions[c] {
+          all_pod_containers := object.get(input.review.object.spec, "containers", []) +
+                                object.get(input.review.object.spec, "initContainers", []) +
+                                object.get(input.review.object.spec, "ephemeralContainers", [])
+          c := all_pod_containers[_]
+          container_sc := object.get(c, "securityContext", {})
+          object.get(container_sc, "seLinuxOptions", null) != null
+        }
+      libs:
+        - |
+          package lib.exclude_update
+
+          is_update(review) {
+            review.operation == "UPDATE"
+          }
+        - |
+          package lib.exempt_container
+
+          is_exempt(container) {
+            exempt_images := object.get(input.parameters, "exemptImages", [])
+            img := object.get(container, "image", "") 
+            count(exempt_images) > 0
+            exemption := exempt_images[_]
+            _matches_exemption(img, exemption)
+          }
+
+          _matches_exemption(img, exemption) {
+            not endswith(exemption, "*")
+            exemption == img
+          }
+
+          _matches_exemption(img, exemption) {
+            endswith(exemption, "*")
+            prefix := trim_suffix(exemption, "*")
+            startswith(img, prefix)
+          }
+{{- end }}

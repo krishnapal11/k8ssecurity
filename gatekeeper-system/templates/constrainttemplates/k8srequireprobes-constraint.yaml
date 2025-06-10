@@ -1,0 +1,30 @@
+{{- $templateName := "k8srequireprobes" }}
+{{- $templateConfig := index .Values.constraintTemplates $templateName }}
+
+{{- if $templateConfig.enabled }}
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: K8sRequireProbes {{/* Must match spec.crd.spec.names.kind from the ConstraintTemplate */}}
+metadata:
+  name: {{ $templateName }}-enforce {{/* Name of this specific constraint instance */}}
+  labels:
+    {{- include "gatekeeper.commonLabels" . | nindent 4 }}
+spec:
+  enforcementAction: {{ $templateConfig.enforcementAction | default "dryrun" }} # Default to dryrun
+  match:
+    {{- /* Default match targets Pods, as this policy inspects container probes. User can override. */}}
+    {{- $defaultMatch := dict "kinds" (list (dict "apiGroups" (list "") "kinds" (list "Pod"))) }}
+    {{- toYaml ($templateConfig.match | default $defaultMatch) | nindent 4 }}
+  parameters:
+    {{- /* Pass 'probes' (list of required probe names like "livenessProbe")
+         and 'probeTypes' (list of allowed action fields like "httpGet").
+         Both parameter lists are crucial for this policy to function effectively. */}}
+    {{- if $templateConfig.params }}
+    {{- toYaml $templateConfig.params | nindent 4 }}
+    {{- else }}
+    # This constraint requires 'params.probes' and 'params.probeTypes' to be configured in values.yaml.
+    # Example: probes: ["livenessProbe", "readinessProbe"], probeTypes: ["httpGet", "exec", "tcpSocket", "grpc"]
+    # Passing empty {} if params is missing; Rego should handle empty lists for 'probes' or 'probeTypes' gracefully
+    # (effectively making the policy non-restrictive if these lists are empty).
+    {}
+    {{- end }}
+{{- end }}

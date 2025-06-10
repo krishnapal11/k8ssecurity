@@ -1,0 +1,28 @@
+{{- $templateName := "k8sdisallowedtags" }}
+{{- $templateConfig := index .Values.constraintTemplates $templateName }}
+
+{{- /* This constraint has two rules: one depends on 'params.tags', the other (must have a tag) does not.
+     Enable if $templateConfig.enabled. The Rego handles an empty 'tags' list gracefully. */}}
+{{- if $templateConfig.enabled }}
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: K8sDisallowedTags {{/* Must match spec.crd.spec.names.kind from the ConstraintTemplate */}}
+metadata:
+  name: {{ $templateName }}-enforce {{/* Name of this specific constraint instance */}}
+  labels:
+    {{- include "gatekeeper.commonLabels" . | nindent 4 }}
+spec:
+  enforcementAction: {{ $templateConfig.enforcementAction | default "dryrun" }} # Default to dryrun
+  match:
+    {{- /* Default match targets Pods, as it inspects container images. User can override. */}}
+    {{- $defaultMatch := dict "kinds" (list (dict "apiGroups" (list "") "kinds" (list "Pod"))) }}
+    {{- toYaml ($templateConfig.match | default $defaultMatch) | nindent 4 }}
+  parameters:
+    {{- /* Pass all params. exemptImages and tags are expected by the template's schema.
+         Rego's object.get provides defaults if specific parameters are missing from the params block. */}}
+    {{- if $templateConfig.params }}
+    {{- toYaml $templateConfig.params | nindent 4 }}
+    {{- else }}
+    {} # Pass an empty object if no params are defined in values.yaml for this constraint.
+       # This ensures the 'parameters' field is present in the Constraint.
+    {{- end }}
+{{- end }}

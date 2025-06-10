@@ -1,0 +1,33 @@
+{{- $templateName := "k8srequiredlabels" }}
+{{- $templateConfig := index .Values.constraintTemplates $templateName }}
+
+{{- /* This constraint is most effective when 'params.labels' is configured in values.yaml. */}}
+{{- if $templateConfig.enabled }}
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: K8sRequiredLabels {{/* Must match spec.crd.spec.names.kind from the ConstraintTemplate */}}
+metadata:
+  name: {{ $templateName }}-enforce {{/* Name of this specific constraint instance */}}
+  labels:
+    {{- include "gatekeeper.commonLabels" . | nindent 4 }}
+spec:
+  enforcementAction: {{ $templateConfig.enforcementAction | default "dryrun" }} # Default to dryrun
+  match:
+    {{- /* Default match targets common resources. User should tailor this in values.yaml. */}}
+    {{- $defaultMatch := dict "kinds" (list
+        (dict "apiGroups" (list "") "kinds" (list "Pod" "Service" "ConfigMap" "Secret" "Namespace"))
+        (dict "apiGroups" (list "apps") "kinds" (list "Deployment" "StatefulSet" "DaemonSet"))
+        (dict "apiGroups" (list "batch") "kinds" (list "Job" "CronJob"))
+        (dict "apiGroups" (list "networking.k8s.io") "kinds" (list "Ingress"))
+      )
+    }}
+    {{- toYaml ($templateConfig.match | default $defaultMatch) | nindent 4 }}
+  parameters:
+    {{- /* Pass all params. The 'labels' array (with key and optional allowedRegex) is crucial.
+         'message' is an optional top-level string for Rego. */}}
+    {{- if $templateConfig.params }}
+    {{- toYaml $templateConfig.params | nindent 4 }}
+    {{- else }}
+    {} # Pass an empty object if no params are defined in values.yaml.
+       # The policy (CEL/Rego) should handle cases where 'labels' parameter is missing/empty.
+    {{- end }}
+{{- end }}
